@@ -1239,7 +1239,7 @@ function RollBackInstallation {
                     runcmd_su "/bin/systemctl daemon-reload"
                     echo
                     printinfo "Restarting xo-server..."
-		    runcmd_su "/bin/systemctl restart xo-server"
+                    runcmd_su "/bin/systemctl restart xo-server"
                     echo
                     break
                 fi
