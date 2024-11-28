@@ -45,6 +45,7 @@ AUTOCERT="${AUTOCERT:-"false"}"
 ACME="${ACME:-"false"}"
 ACME_EMAIL="${ACME_EMAIL:-""}"
 ACME_CA="${ACME_CA:-"letsencrypt/production"}"
+SUDO="${SUDO:-"sudo"}"
 USESUDO="${USESUDO:-"false"}"
 GENSUDO="${GENSUDO:-"false"}"
 INSTALL_REPOS="${INSTALL_REPOS:-"true"}"
@@ -79,17 +80,6 @@ PROGRESS="[${COLOR_BLUE}..${COLOR_N}]"
 if [[ ! -d "$LOGPATH" ]]; then
     mkdir -p "$LOGPATH"
 fi
-
-function CheckUser {
-
-    # Make sure the script is ran as root
-
-    if [[ ! $(runcmd_stdout "id -u") == "0" ]]; then
-        printfail "This script needs to be ran as root"
-        exit 1
-    fi
-
-}
 
 # script self upgrade
 function SelfUpgrade {
@@ -144,6 +134,11 @@ function runcmd {
     echo "+ $1" >>"$LOGFILE"
     bash -c -o pipefail "$1" >>"$LOGFILE" 2>&1 || return 1
 }
+function runcmd_su {
+
+    echo "+ (su) $1" >>"$LOGFILE"
+    $SUDO bash -c -o pipefail "$1" >>"$LOGFILE" 2>&1 || return 1
+}
 
 # log actual command and it's stderr to logfile in one go
 function runcmd_stdout {
@@ -151,6 +146,12 @@ function runcmd_stdout {
     echo "+ $1" >>"$LOGFILE"
     # shellcheck disable=SC2094
     bash -c -o pipefail "$1" 2>>"$LOGFILE" | tee -a "$LOGFILE" || return 1
+}
+function runcmd_stdout_su {
+
+    echo "+ (su) $1" >>"$LOGFILE"
+    # shellcheck disable=SC2094
+    $SUDO bash -c -o pipefail "$1" 2>>"$LOGFILE" | tee -a "$LOGFILE" || return 1
 }
 
 # make output we print pretty
@@ -202,14 +203,14 @@ function InstallDependenciesRPM {
     if [[ -z $(runcmd_stdout "rpm -qa epel-release") ]] && [[ "$INSTALL_REPOS" == "true" ]]; then
         echo
         printprog "Installing epel-repo"
-        runcmd "dnf -y install epel-release"
+        runcmd_su "dnf -y install epel-release"
         printok "Installing epel-repo"
     fi
 
     # install packages
     echo
     printprog "Installing build dependencies, redis server, python3, git, nfs-utils, cifs-utils, lvm2, ntfs-3g, dmidecode patch"
-    runcmd "dnf -y install gcc gcc-c++ make openssl-devel redis libpng-devel python3 git nfs-utils cifs-utils lvm2 ntfs-3g dmidecode patch"
+    runcmd_su "dnf -y install gcc gcc-c++ make openssl-devel redis libpng-devel python3 git nfs-utils cifs-utils lvm2 ntfs-3g dmidecode patch"
     printok "Installing build dependencies, redis server, python3, git, nfs-utils, cifs-utils, lvm2, ntfs-3g, dmidecode patch"
 
     # only run automated node install if executable not found
@@ -219,10 +220,10 @@ function InstallDependenciesRPM {
 
         # only install nodejs repo if user allows it to be installed
         if [[ "$INSTALL_REPOS" == "true" ]]; then
-            runcmd "curl -s -L https://rpm.nodesource.com/setup_${NODEVERSION}.x | bash -"
+            runcmd_su "curl -s -L https://rpm.nodesource.com/setup_${NODEVERSION}.x | bash -"
         fi
 
-        runcmd "dnf install -y nodejs"
+        runcmd_su "dnf install -y nodejs"
         printok "Installing node.js"
     else
         UpdateNodeYarn
@@ -235,10 +236,10 @@ function InstallDependenciesRPM {
 
         # only install yarn repo if user allows it to be installed
         if [[ "$INSTALL_REPOS" == "true" ]]; then
-            runcmd "curl -s -o /etc/yum.repos.d/yarn.repo https://dl.yarnpkg.com/rpm/yarn.repo"
+            runcmd_su "curl -s -o /etc/yum.repos.d/yarn.repo https://dl.yarnpkg.com/rpm/yarn.repo"
         fi
 
-        runcmd "dnf -y install yarn"
+        runcmd_su "dnf -y install yarn"
         printok "Installing yarn"
     fi
 
@@ -248,23 +249,23 @@ function InstallDependenciesRPM {
     #        echo
     #        printprog "Installing libvhdi-tools"
     #        if [[ "$INSTALL_REPOS" == "true" ]]; then
-    #            runcmd "rpm -ivh https://forensics.cert.org/cert-forensics-tools-release-el${OSVERSION}.rpm"
-    #            runcmd "sed -i 's/enabled=1/enabled=0/g' /etc/yum.repos.d/cert-forensics-tools.repo"
-    #            runcmd "dnf --enablerepo=forensics install -y libvhdi-tools"
+    #            runcmd_su "rpm -ivh https://forensics.cert.org/cert-forensics-tools-release-el${OSVERSION}.rpm"
+    #            runcmd_su "sed -i 's/enabled=1/enabled=0/g' /etc/yum.repos.d/cert-forensics-tools.repo"
+    #            runcmd_su "dnf --enablerepo=forensics install -y libvhdi-tools"
     #        else
-    #            runcmd "dnf install -y libvhdi-tools"
+    #            runcmd_su "dnf install -y libvhdi-tools"
     #        fi
     #        printok "Installing libvhdi-tools"
     #    fi
 
     echo
     printprog "Enabling and starting redis service"
-    runcmd "/bin/systemctl enable redis && /bin/systemctl start redis"
+    runcmd_su "/bin/systemctl enable redis && /bin/systemctl start redis"
     printok "Enabling and starting redis service"
 
     echo
     printprog "Enabling and starting rpcbind service"
-    runcmd "/bin/systemctl enable rpcbind && /bin/systemctl start rpcbind"
+    runcmd_su "/bin/systemctl enable rpcbind && /bin/systemctl start rpcbind"
     printok "Enabling and starting rpcbind service"
 
 }
@@ -281,32 +282,32 @@ function InstallDependenciesDeb {
     if [[ "$OSNAME" == "Ubuntu" ]] && [[ "$INSTALL_REPOS" == "true" ]]; then
         echo
         printprog "OS Ubuntu so making sure universe repository is enabled"
-        runcmd "apt-get install -y software-properties-common"
-        runcmd "add-apt-repository -y universe"
+        runcmd_su "apt-get install -y software-properties-common"
+        runcmd_su "add-apt-repository -y universe"
         printok "OS Ubuntu so making sure universe repository is enabled"
     fi
 
     echo
     printprog "Running apt-get update"
-    runcmd "apt-get update"
+    runcmd_su "apt-get update"
     printok "Running apt-get update"
 
     # install packages
     echo
     printprog "Installing build dependencies, redis server, python3-minimal, git, libvhdi-utils, lvm2, nfs-common, cifs-utils, curl, ntfs-3g, dmidecode patch"
-    runcmd "apt-get install -y build-essential redis-server libpng-dev git libvhdi-utils python3-minimal lvm2 nfs-common cifs-utils curl ntfs-3g dmidecode patch"
+    runcmd_su "apt-get install -y build-essential redis-server libpng-dev git libvhdi-utils python3-minimal lvm2 nfs-common cifs-utils curl ntfs-3g dmidecode patch"
     printok "Installing build dependencies, redis server, python3-minimal, git, libvhdi-utils, lvm2, nfs-common, cifs-utils, curl, ntfs-3g, dmidecode patch"
 
     # Install apt-transport-https and ca-certificates because of yarn https repo url
     echo
     printprog "Installing apt-transport-https and ca-certificates packages to support https repos"
-    runcmd "apt-get install -y apt-transport-https ca-certificates"
+    runcmd_su "apt-get install -y apt-transport-https ca-certificates"
     printok "Installing apt-transport-https and ca-certificates packages to support https repos"
 
     if [[ "$OSNAME" == "Debian" ]] && [[ "$OSVERSION" =~ ^(10|11|12)$ ]]; then
         echo
         printprog "Debian 10/11/12, so installing gnupg also"
-        runcmd "apt-get install gnupg -y"
+        runcmd_su "apt-get install gnupg -y"
         printok "Debian 10/11/12, so installing gnupg also"
     fi
 
@@ -314,7 +315,7 @@ function InstallDependenciesDeb {
     if [[ -z $(runcmd_stdout "command -v setcap") ]]; then
         echo
         printprog "Installing setcap"
-        runcmd "apt-get install -y libcap2-bin"
+        runcmd_su "apt-get install -y libcap2-bin"
         printok "Installing setcap"
     fi
 
@@ -325,10 +326,10 @@ function InstallDependenciesDeb {
 
         # only install nodejs repo if user allows it to be installed
         if [[ "$INSTALL_REPOS" == "true" ]]; then
-            runcmd "curl -sL https://deb.nodesource.com/setup_${NODEVERSION}.x | bash -"
+            runcmd_su "curl -sL https://deb.nodesource.com/setup_${NODEVERSION}.x | bash -"
         fi
 
-        runcmd "apt-get install -y nodejs"
+        runcmd_su "apt-get install -y nodejs"
         printok "Installing node.js"
     else
         UpdateNodeYarn
@@ -341,23 +342,23 @@ function InstallDependenciesDeb {
 
         # only install yarn repo if user allows it to be installed
         if [[ "$INSTALL_REPOS" == "true" ]]; then
-            runcmd "curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | apt-key add -"
-            runcmd "echo \"deb https://dl.yarnpkg.com/debian/ stable main\" | tee /etc/apt/sources.list.d/yarn.list"
+            runcmd_su "curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | apt-key add -"
+            runcmd_su "echo \"deb https://dl.yarnpkg.com/debian/ stable main\" | tee /etc/apt/sources.list.d/yarn.list"
         fi
 
-        runcmd "apt-get update"
-        runcmd "apt-get install -y yarn"
+        runcmd_su "apt-get update"
+        runcmd_su "apt-get install -y yarn"
         printok "Installing yarn"
     fi
 
     echo
     printprog "Enabling and starting redis service"
-    runcmd "/bin/systemctl enable redis-server && /bin/systemctl start redis-server"
+    runcmd_su "/bin/systemctl enable redis-server && /bin/systemctl start redis-server"
     printok "Enabling and starting redis service"
 
     echo
     printprog "Enabling and starting rpcbind service"
-    runcmd "/bin/systemctl enable rpcbind && /bin/systemctl start rpcbind"
+    runcmd_su "/bin/systemctl enable rpcbind && /bin/systemctl start rpcbind"
     printok "Enabling and starting rpcbind service"
 
 }
@@ -385,10 +386,10 @@ function UpdateNodeYarn {
             echo
             printprog "node.js version is ${NODEV:-"not installed"}, upgrading to ${NODEVERSION}.x"
 
-            runcmd "curl -sL https://rpm.nodesource.com/setup_${NODEVERSION}.x | bash -"
+            runcmd_su "curl -sL https://rpm.nodesource.com/setup_${NODEVERSION}.x | bash -"
 
-            runcmd "dnf clean all"
-            runcmd "dnf install -y nodejs"
+            runcmd_su "dnf clean all"
+            runcmd_su "dnf install -y nodejs"
             printok "node.js version is ${NODEV:-"not installed"}, upgrading to ${NODEVERSION}.x"
         else
             if [[ -z "$NODEV" ]]; then
@@ -400,7 +401,7 @@ function UpdateNodeYarn {
             if [[ "$TASK" == "Update" ]]; then
                 echo
                 printprog "node.js version already on $NODEV, checking updates"
-                runcmd "dnf update -y nodejs yarn"
+                runcmd_su "dnf update -y nodejs yarn"
                 printok "node.js version already on $NODEV, checking updates"
             elif [[ "$TASK" == "Installation" ]]; then
                 echo
@@ -414,9 +415,9 @@ function UpdateNodeYarn {
             echo
             printprog "node.js version is ${NODEV:-"not installed"}, upgrading to ${NODEVERSION}.x"
 
-            runcmd "curl -sL https://deb.nodesource.com/setup_${NODEVERSION}.x | bash -"
+            runcmd_su "curl -sL https://deb.nodesource.com/setup_${NODEVERSION}.x | bash -"
 
-            runcmd "apt-get install -y nodejs"
+            runcmd_su "apt-get install -y nodejs"
             printok "node.js version is ${NODEV:-"not installed"}, upgrading to ${NODEVERSION}.x"
         else
             if [[ -z "$NODEV" ]]; then
@@ -427,8 +428,8 @@ function UpdateNodeYarn {
             if [[ "$TASK" == "Update" ]]; then
                 echo
                 printprog "node.js version already on $NODEV, checking updates"
-                runcmd "apt-get update"
-                runcmd "apt-get install -y --only-upgrade nodejs yarn"
+                runcmd_su "apt-get update"
+                runcmd_su "apt-get install -y --only-upgrade nodejs yarn"
                 printok "node.js version already on $NODEV, checking updates"
             elif [[ "$TASK" == "Installation" ]]; then
                 echo
@@ -525,11 +526,11 @@ function InstallSudo {
         if [[ "$PKG_FORMAT" == "deb" ]]; then
             echo
             printprog "Installing sudo"
-            runcmd "apt-get install -y sudo"
+            runcmd_su "apt-get install -y sudo"
             printok "Installing sudo"
         elif [[ "$PKG_FORMAT" == "rpm" ]]; then
             printprog "Installing sudo"
-            runcmd "dnf install -y sudo"
+            runcmd_su "dnf install -y sudo"
             printok "Installing sudo"
         fi
     fi
@@ -538,12 +539,12 @@ function InstallSudo {
         echo
         printinfo "Generating sudoers configuration to $SUDOERSFILE"
         TMPSUDOERS="$(mktemp /tmp/xo-sudoers.XXXXXX)"
-        runcmd "echo '$XOUSER ALL=(root) NOPASSWD: /bin/mount, /bin/umount, /bin/findmnt' > '$TMPSUDOERS'"
-        if runcmd "visudo -cf $TMPSUDOERS"; then
-            runcmd "mv $TMPSUDOERS $SUDOERSFILE"
+        runcmd_su "echo '$XOUSER ALL=(root) NOPASSWD: /bin/mount, /bin/umount, /bin/findmnt' > '$TMPSUDOERS'"
+        if runcmd_su "visudo -cf $TMPSUDOERS"; then
+            runcmd_su "mv $TMPSUDOERS $SUDOERSFILE"
         else
             printfail "sudoers syntax check failed, not activating $SUDOERSFILE"
-            runcmd "rm -f $TMPSUDOERS"
+            runcmd_su "rm -f $TMPSUDOERS"
         fi
     fi
 
@@ -683,7 +684,7 @@ function InstallXO {
         if [[ -z $(runcmd_stdout "getent passwd $XOUSER") ]]; then
             echo
             printprog "Creating missing $XOUSER user"
-            runcmd "useradd -s /sbin/nologin $XOUSER -m"
+            runcmd_su "useradd -s /sbin/nologin $XOUSER -m"
             printok "Creating missing $XOUSER user"
             CONFIGPATH=$(getent passwd "$XOUSER" | cut -d: -f6)
         fi
@@ -712,7 +713,7 @@ function InstallXO {
     if [[ $(runcmd_stdout "pgrep -f '^([a-zA-Z0-9_\/-]+?)node.*xo-server'") ]]; then
         echo
         printprog "Shutting down running xo-server"
-        runcmd "/bin/systemctl stop xo-server" || {
+        runcmd_su "/bin/systemctl stop xo-server" || {
             printfail "failed to stop service, exiting..."
             exit 1
         }
@@ -746,7 +747,7 @@ function InstallXO {
 
             if [[ -n "$NODEBINARY" ]]; then
                 printprog "Attempting to set cap_net_bind_service permission for $NODEBINARY"
-                runcmd "setcap 'cap_net_bind_service=+ep' $NODEBINARY" && printok "Attempting to set cap_net_bind_service permission for $NODEBINARY" ||
+                runcmd_su "setcap 'cap_net_bind_service=+ep' $NODEBINARY" && printok "Attempting to set cap_net_bind_service permission for $NODEBINARY" ||
                     {
                         printfail "Attempting to set cap_net_bind_service permission for $NODEBINARY"
                         echo "	Non-privileged user might not be able to bind to <1024 port. xo-server won't start most likely"
@@ -759,16 +760,16 @@ function InstallXO {
 
     # fix to prevent older installations to not update because systemd service is not symlinked anymore
     if [[ $(runcmd_stdout "find /etc/systemd/system -maxdepth 1 -type l -name 'xo-server.service'") ]]; then
-        runcmd "rm -f /etc/systemd/system/xo-server.service"
+        runcmd_su "rm -f /etc/systemd/system/xo-server.service"
     fi
 
     printinfo "Replacing systemd service configuration file"
 
     # always replace systemd service configuration if it changes in future updates
-    runcmd "/bin/cp -f $INSTALLDIR/xo-builds/xen-orchestra-$TIME/packages/xo-server/xo-server.service /etc/systemd/system/xo-server.service"
+    runcmd_su "/bin/cp -f $INSTALLDIR/xo-builds/xen-orchestra-$TIME/packages/xo-server/xo-server.service /etc/systemd/system/xo-server.service"
     sleep 2
     printinfo "Reloading systemd configuration"
-    runcmd "/bin/systemctl daemon-reload"
+    runcmd_su "/bin/systemctl daemon-reload"
     sleep 2
 
     # if xen orchestra configuration file doesn't exist or configuration update is not disabled in xo-install.cfg, we create it
@@ -816,7 +817,7 @@ function InstallXO {
             printinfo "Changing default mountsDir in xo-server configuration file"
             runcmd "sed -i \"s%#mountsDir.*%mountsDir = '$INSTALLDIR/mounts'%\" $INSTALLDIR/xo-builds/xen-orchestra-$TIME/packages/xo-server/sample.config.toml"
             runcmd "mkdir -p $INSTALLDIR/mounts"
-            runcmd "chown $XOUSER:$XOUSER $INSTALLDIR/mounts"
+            runcmd_su "chown $XOUSER:$XOUSER $INSTALLDIR/mounts"
         fi
 
         if [[ -n "$SYSLOG_TARGET" ]]; then
@@ -829,10 +830,10 @@ function InstallXO {
         if ! [[ -d $CONFIGPATH/.config ]]; then
             # create generic .config directory only if it doesn't exist as we set permissions to it
             # this directory could potentially exist already and we don't want to override anything
-            runcmd "install -o $XOUSER -g $XOUSER -m 770 -d $CONFIGPATH/.config"
+            runcmd_su "install -o $XOUSER -g $XOUSER -m 770 -d $CONFIGPATH/.config"
         fi
-        runcmd "mkdir -p $CONFIGPATH/.config/xo-server"
-        runcmd "mv -f $INSTALLDIR/xo-builds/xen-orchestra-$TIME/packages/xo-server/sample.config.toml $CONFIGPATH/.config/xo-server/config.toml"
+        runcmd_su "mkdir -p $CONFIGPATH/.config/xo-server"
+        runcmd_su "mv -f $INSTALLDIR/xo-builds/xen-orchestra-$TIME/packages/xo-server/sample.config.toml $CONFIGPATH/.config/xo-server/config.toml"
 
     fi
 
@@ -847,25 +848,23 @@ function InstallXO {
     printinfo "Symlinking fresh xo-cli install/update to $INSTALLDIR/xo-cli"
     runcmd "ln -sfn $INSTALLDIR/xo-builds/xen-orchestra-$TIME/packages/xo-cli $INSTALLDIR/xo-cli"
     printinfo "Symlinking xo-cli script to /usr/local/bin/xo-cli"
-    runcmd "ln -sfn $INSTALLDIR/xo-cli/index.mjs /usr/local/bin/xo-cli"
+    runcmd_su "ln -sfn $INSTALLDIR/xo-cli/index.mjs /usr/local/bin/xo-cli"
 
     # if not running as root, xen orchestra startup might not be able to create data directory so we create it here just in case
     if [[ "$XOUSER" != "root" ]]; then
-        runcmd "chown -R $XOUSER:$XOUSER $INSTALLDIR/xo-builds/xen-orchestra-$TIME"
-
         if [ ! -d /var/lib/xo-server ]; then
-            runcmd "mkdir /var/lib/xo-server"
+            runcmd_su "mkdir /var/lib/xo-server"
         fi
 
-        runcmd "chown -R $XOUSER:$XOUSER /var/lib/xo-server"
+        runcmd_su "chown -R $XOUSER:$XOUSER /var/lib/xo-server"
 
-        runcmd "chown -R $XOUSER:$XOUSER $CONFIGPATH/.config/xo-server"
+        runcmd_su "chown -R $XOUSER:$XOUSER $CONFIGPATH/.config/xo-server"
 
     fi
 
     echo
     printinfo "Starting xo-server..."
-    runcmd "/bin/systemctl start xo-server"
+    runcmd_su "/bin/systemctl start xo-server"
 
     # no need to exit/trap on errors anymore
     set +eo pipefail
@@ -888,12 +887,12 @@ function VerifyServiceStart {
     local count=0
     local limit=6
     # shellcheck disable=SC1117
-    local servicestatus="$(runcmd_stdout "journalctl --since '$LOGTIME' -u $XO_SVC | grep 'Web server listening on https\{0,1\}:\/\/.*:$PORT'")"
+    local servicestatus="$(runcmd_stdout_su "journalctl --since '$LOGTIME' -u $XO_SVC | grep 'Web server listening on https\{0,1\}:\/\/.*:$PORT'")"
     while [[ -z "$servicestatus" ]] && [[ "$count" -lt "$limit" ]]; do
         echo " waiting for port to be open"
         sleep 10
         # shellcheck disable=SC1117
-        local servicestatus="$(runcmd_stdout "journalctl --since '$LOGTIME' -u $XO_SVC | grep 'Web server listening on https\{0,1\}:\/\/.*:$PORT'")"
+        local servicestatus="$(runcmd_stdout_su "journalctl --since '$LOGTIME' -u $XO_SVC | grep 'Web server listening on https\{0,1\}:\/\/.*:$PORT'")"
         ((count++))
     done
 
@@ -920,7 +919,7 @@ function VerifyServiceStart {
         printinfo "$TASK successful. Enabling $XO_SVC service to start on reboot"
         echo "" >>"$LOGFILE"
         echo "$TASK succesful" >>"$LOGFILE"
-        runcmd "/bin/systemctl enable $XO_SVC"
+        runcmd_su "/bin/systemctl enable $XO_SVC"
         echo
     # if service startup failed...
     else
@@ -931,7 +930,7 @@ function VerifyServiceStart {
         echo "$TASK failed" >>"$LOGFILE"
         echo "$XO_SVC service log:" >>"$LOGFILE"
         echo "" >>"$LOGFILE"
-        runcmd "journalctl --since '$LOGTIME' -u $XO_SVC >> $LOGFILE"
+        runcmd_su "journalctl --since '$LOGTIME' -u $XO_SVC >> $LOGFILE"
         echo
         echo "Control $XO_SVC service with systemctl for stop/start/restart etc."
         exit 1
@@ -997,7 +996,7 @@ function InstallXOProxy {
     if [[ $(runcmd_stdout "pgrep -f '^([a-zA-Z0-9_\/-]+?)node.*xo-proxy'") ]]; then
         echo
         printprog "Shutting down running xo-proxy"
-        runcmd "/bin/systemctl stop xo-proxy" || {
+        runcmd_su "/bin/systemctl stop xo-proxy" || {
             printfail "failed to stop service, exiting..."
             exit 1
         }
@@ -1035,7 +1034,7 @@ EOF
     echo
     printinfo "Generate systemd service configuration file"
 
-    cat <<EOF >/etc/systemd/system/xo-proxy.service
+    $SUDO cat <<EOF >/etc/systemd/system/xo-proxy.service
 [Unit]
 Description=xo-proxy
 After=network-online.target
@@ -1050,7 +1049,7 @@ WantedBy=multi-user.target
 EOF
 
     printinfo "Reloading systemd configuration"
-    runcmd "/bin/systemctl daemon-reload"
+    runcmd_su "/bin/systemctl daemon-reload"
 
     # if xen orchestra proxy configuration file doesn't exist or configuration update is not disabled in xo-install.cfg, we create it
 
@@ -1062,11 +1061,11 @@ EOF
         PROXY_CONFIG_UPDATED="true"
         echo
         printinfo "No xo-proxy configuration present, copying default config to $CONFIGPATH_PROXY/.config/xo-proxy/config.toml"
-        runcmd "mkdir -p $CONFIGPATH_PROXY/.config/xo-proxy"
-        runcmd "cp $INSTALLDIR/xo-builds/xen-orchestra-$TIME/@xen-orchestra/proxy/config.toml $CONFIGPATH_PROXY/.config/xo-proxy/config.toml"
+        runcmd_su "mkdir -p $CONFIGPATH_PROXY/.config/xo-proxy"
+        runcmd_su "cp $INSTALLDIR/xo-builds/xen-orchestra-$TIME/@xen-orchestra/proxy/config.toml $CONFIGPATH_PROXY/.config/xo-proxy/config.toml"
 
         printinfo "Adding authentication token to xo-proxy config"
-        runcmd "sed -i \"s/^authenticationToken = .*/authenticationToken = '$PROXY_TOKEN'/\" $CONFIGPATH_PROXY/.config/xo-proxy/config.toml"
+        runcmd_su "sed -i \"s/^authenticationToken = .*/authenticationToken = '$PROXY_TOKEN'/\" $CONFIGPATH_PROXY/.config/xo-proxy/config.toml"
     fi
 
     echo
@@ -1075,7 +1074,7 @@ EOF
 
     echo
     printinfo "Starting xo-proxy..."
-    runcmd "/bin/systemctl start xo-proxy"
+    runcmd_su "/bin/systemctl start xo-proxy"
 
     # no need to exit/trap on errors anymore
     set +eo pipefail
@@ -1236,11 +1235,11 @@ function RollBackInstallation {
                     runcmd "ln -sfn $INSTALLATION/packages/xo-cli $INSTALLDIR/xo-cli"
                     echo
                     printinfo "Replacing xo.server.service systemd configuration file"
-                    runcmd "/bin/cp -f $INSTALLATION/packages/xo-server/xo-server.service /etc/systemd/system/xo-server.service"
-                    runcmd "/bin/systemctl daemon-reload"
+                    runcmd_su "/bin/cp -f $INSTALLATION/packages/xo-server/xo-server.service /etc/systemd/system/xo-server.service"
+                    runcmd_su "/bin/systemctl daemon-reload"
                     echo
                     printinfo "Restarting xo-server..."
-                    runcmd "/bin/systemctl restart xo-server"
+		    runcmd_su "/bin/systemctl restart xo-server"
                     echo
                     break
                 fi
@@ -1249,7 +1248,7 @@ function RollBackInstallation {
                     runcmd "ln -sfn $INSTALLATION/@xen-orchestra/proxy $INSTALLDIR/xo-proxy"
                     echo
                     printinfo "Restating xo-proxy..."
-                    runcmd "/bin/systemctl restart xo-proxy"
+                    runcmd_su "/bin/systemctl restart xo-proxy"
                     echo
                     break
                 fi
@@ -1477,7 +1476,7 @@ function StartUpScreen {
                 case $answer in
                     y)
                         echo "Stopping xo-server..."
-                        runcmd "/bin/systemctl stop xo-server" ||
+                        runcmd_su "/bin/systemctl stop xo-server" ||
                             {
                                 printfail "failed to stop service, exiting..."
                                 exit 1
@@ -1524,7 +1523,7 @@ function StartUpScreen {
                 case $answer in
                     y)
                         echo "Stopping xo-proxy..."
-                        runcmd "/bin/systemctl stop xo-proxy" ||
+                        runcmd_su "/bin/systemctl stop xo-proxy" ||
                             {
                                 printfail "failed to stop service, exiting..."
                                 exit 1
@@ -1600,7 +1599,6 @@ fi
 # these functions check specific requirements and are run everytime
 SelfUpgrade "$@"
 ScriptInfo
-CheckUser
 CheckArch
 CheckXE
 CheckOS
