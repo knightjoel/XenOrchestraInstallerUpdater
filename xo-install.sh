@@ -1371,7 +1371,7 @@ function CheckCertificate {
         fi
         # if defined cert/key files exist. check that they're compatible with each other.
         local CERT="$(runcmd_stdout "openssl x509 -pubkey -noout -in $PATH_TO_HTTPS_CERT | openssl md5")"
-        local KEY="$(runcmd_stdout "openssl pkey -pubout -in $PATH_TO_HTTPS_KEY -outform PEM | openssl md5")"
+        local KEY="$(runcmd_stdout_su "openssl pkey -pubout -in $PATH_TO_HTTPS_KEY -outform PEM | openssl md5")"
         if [[ "$CERT" != "$KEY" ]]; then
             echo
             printinfo "$PATH_TO_HTTPS_CERT:"
